@@ -1,0 +1,90 @@
+services:
+
+  # PostgreSQL database
+  db:
+    image: postgres:16
+    container_name: taskmanager-db
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-taskuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taskpass}
+      POSTGRES_DB: ${POSTGRES_DB:-taskmanager}
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-taskuser} -d ${POSTGRES_DB:-taskmanager}
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    networks:
+      - taskmanager-network
+
+
+  # FastAPI backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    container_name: taskmanager-backend
+
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-taskuser}:${POSTGRES_PASSWORD:-taskpass}@db:5432/${POSTGRES_DB:-taskmanager}
+      APP_NAME: Task Manager API
+      DEBUG: "false"
+
+    ports:
+      - "8000:8000"
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    networks:
+      - taskmanager-network
+
+
+  # React frontend served by Nginx
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    container_name: taskmanager-frontend
+
+    ports:
+      - "5173:80"
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    networks:
+      - taskmanager-network
+
+
+volumes:
+  postgres_data:
+    name: taskmanager_pgdata
+
+networks:
+  taskmanager-network:
+    driver: bridge
